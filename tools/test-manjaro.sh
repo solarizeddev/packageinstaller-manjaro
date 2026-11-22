@@ -39,7 +39,8 @@ ctest --test-dir /tmp/pi-default --output-on-failure --no-tests=error >/out/ctes
 for f in /usr/bin/packageinstaller-manjaro /usr/bin/packageinstaller-manjaro-scan \
          /usr/lib/packageinstaller-manjaro/packageinstaller-manjaro-helper \
          /usr/share/applications/packageinstaller-manjaro.desktop \
-         /usr/share/polkit-1/actions/org.packageinstaller-manjaro.policy; do
+         /usr/share/polkit-1/actions/org.packageinstaller-manjaro.policy \
+         /usr/share/polkit-1/rules.d/49-packageinstaller-manjaro.rules; do
     [ -e "$f" ] || { echo "missing: $f"; exit 1; }
 done
 for f in /usr/bin/cachyos-pi /usr/share/applications/cachyos-pi.desktop /usr/share/icons/hicolor/256x256/apps/cachyos-pi.png \

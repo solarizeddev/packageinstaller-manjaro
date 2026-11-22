@@ -1,0 +1,23 @@
+// Package Installer for Manjaro: Flatpak's system operations for administrators
+// (the wheel group), as on a normal desktop. There Flatpak lets every user of
+// the active local session update apps, runtimes and the app catalogue without
+// a password (its policy), and lets administrators install and remove them
+// (its own rule). Plasma 6 runs apps as services outside the login session,
+// where both need the admin password, and the installer runs flatpak with
+// --noninteractive, which cannot ask: updates, installs and removals failed
+// ("not allowed for user"). This allows the same operations for wheel users
+// wherever polkit places them; nothing more than a desktop session already has.
+polkit.addRule(function(action, subject) {
+    if ((action.id == "org.freedesktop.Flatpak.appstream-update" ||
+         action.id == "org.freedesktop.Flatpak.app-update" ||
+         action.id == "org.freedesktop.Flatpak.runtime-update" ||
+         action.id == "org.freedesktop.Flatpak.modify-repo" ||
+         action.id == "org.freedesktop.Flatpak.app-install" ||
+         action.id == "org.freedesktop.Flatpak.runtime-install" ||
+         action.id == "org.freedesktop.Flatpak.app-uninstall" ||
+         action.id == "org.freedesktop.Flatpak.runtime-uninstall") &&
+        subject.isInGroup("wheel")) {
+        return polkit.Result.YES;
+    }
+    return polkit.Result.NOT_HANDLED;
+});

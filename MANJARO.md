@@ -30,6 +30,7 @@ upstream changed its pictures. Screenshots from a real desktop go in
 | `CMakeLists.txt` | The `PI_*` options; the program, scanner and helper names; the polkit file with its own ids and the admin password asked for outside the login session too (as pamac), since Plasma 6 runs apps outside it; the desktop file; no CachyOS icon or AppStream entry |
 | `src/instance.{hpp,cpp}` (new), two hooks in `src/main.cpp` | One window per user; `--updates` opens it (or brings it forward) on the Updates page, for the notifier |
 | `screenshots/` | The README's pictures, of the Manjaro build (`tools/screenshots.sh`) |
+| `manjaro/49-packageinstaller-manjaro.rules` | A polkit rule: Flatpak updates, installs, removals and catalogue refresh for administrators (wheel) without a password, as Flatpak allows them in a desktop session; Plasma 6 runs apps outside it, where flatpak --noninteractive was refused |
 | `cmake/Manjaro.cmake`, `manjaro/` | The Manjaro settings, the app list (only packages in Manjaro's repositories), its check, the desktop file |
 | `MANJARO.md`, `packaging/PKGBUILD`, `tools/test-manjaro.sh` | This file, the package, the container test |
 

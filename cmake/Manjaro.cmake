@@ -16,4 +16,6 @@ set(PI_RATE_MIRRORS "/usr/bin/pacman-mirrors" CACHE STRING "")
 # mirrors that are up to date, so ranking does not probe every mirror
 set(PI_RATE_MIRRORS_ARGV "pacman-mirrors;--no-color;--fasttrack;10" CACHE STRING "")
 set(PI_PKGLIST "${CMAKE_CURRENT_LIST_DIR}/../manjaro/pkglist.yaml" CACHE FILEPATH "")
+# no password for refreshing Flatpak's catalogue, see the file
+set(PI_POLKIT_RULES "${CMAKE_CURRENT_LIST_DIR}/../manjaro/49-packageinstaller-manjaro.rules" CACHE FILEPATH "")
 set(PI_DESKTOP_FILE "${CMAKE_CURRENT_LIST_DIR}/../manjaro/packageinstaller-manjaro.desktop" CACHE FILEPATH "")
