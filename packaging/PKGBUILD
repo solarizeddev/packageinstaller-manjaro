@@ -27,9 +27,11 @@ _root=$(realpath "$startdir/..")
 # (window, menu, sidebar, banner, password prompt); read by cmake/Manjaro.cmake
 
 build() {
-    # keep CPM's downloads of rapidyaml and backward-cpp in $srcdir
+    # keep CPM's downloads (rapidyaml, fmt, spdlog, backward-cpp, doctest) in $srcdir
     export CPM_SOURCE_CACHE="$srcdir/cpm"
-    # --fresh: makepkg -f keeps src/build, whose cache would win over -C
+    # --fresh: makepkg -f keeps src/build, whose cache would win over -C.
+    # BUILD_TESTING=ON: upstream reads it before include(CTest) would set it,
+    # so without it no test is built and check() would find none.
     cmake --fresh -C "$_root/cmake/Manjaro.cmake" -S "$_root" -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
         -DCMAKE_INSTALL_PREFIX=/usr \
