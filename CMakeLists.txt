@@ -274,6 +274,11 @@ if(PI_DISTRO_NAME)
     string(REPLACE "/cachyos-pi-helper<" "/${PI_HELPER_NAME}<" policy "${policy}")
     string(REPLACE "<vendor>CachyOS</vendor>" "<vendor>${PI_DISTRO_NAME}</vendor>" policy "${policy}")
     string(REPLACE "<icon_name>cachyos-pi</icon_name>" "<icon_name>${PI_LOGO_ICON}</icon_name>" policy "${policy}")
+    # As pamac: the admin password is asked for wherever polkit places the caller.
+    # Plasma 6 runs apps as services outside the login session; with "no" for
+    # those, polkit refused without asking (pkcheck: "Not authorized", no dialog).
+    string(REPLACE "<allow_any>no</allow_any>" "<allow_any>auth_admin_keep</allow_any>" policy "${policy}")
+    string(REPLACE "<allow_inactive>no</allow_inactive>" "<allow_inactive>auth_admin_keep</allow_inactive>" policy "${policy}")
     file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/org.${PI_APP_ID}.policy" "${policy}")
     install(FILES "${CMAKE_CURRENT_BINARY_DIR}/org.${PI_APP_ID}.policy"
             DESTINATION ${CMAKE_INSTALL_DATADIR}/polkit-1/actions)

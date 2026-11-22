@@ -27,7 +27,7 @@ upstream changed its pictures. Screenshots from a real desktop go in
 | `src/helper/shared.hpp`, `src/helper/main.cpp` | The mirror ranking program: `pacman-mirrors --no-color --fasttrack 10` |
 | `src/transaction.cpp` | An uninstalled build finds its helper by the installed name (one line); without paru, paru itself is built with makepkg (its build dependencies through the helper) and installed through the helper |
 | `src/backend.{hpp,cpp}`, `qml/AurDetailsPage.qml`, `qml/Main.qml` | "Install paru" where the repositories have no paru: paru's AUR page, buildable without paru |
-| `CMakeLists.txt` | The `PI_*` options; the program, scanner and helper names; the polkit file with its own ids; the desktop file; no CachyOS icon or AppStream entry |
+| `CMakeLists.txt` | The `PI_*` options; the program, scanner and helper names; the polkit file with its own ids and the admin password asked for outside the login session too (as pamac), since Plasma 6 runs apps outside it; the desktop file; no CachyOS icon or AppStream entry |
 | `src/instance.{hpp,cpp}` (new), two hooks in `src/main.cpp` | One window per user; `--updates` opens it (or brings it forward) on the Updates page, for the notifier |
 | `screenshots/` | The README's pictures, of the Manjaro build (`tools/screenshots.sh`) |
 | `cmake/Manjaro.cmake`, `manjaro/` | The Manjaro settings, the app list (only packages in Manjaro's repositories), its check, the desktop file |
