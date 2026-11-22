@@ -2,11 +2,13 @@
 #include "backend.hpp"
 #include "helper/shared.hpp"
 #include "iconprovider.hpp"
+#include "icontheme.hpp"
 #include "memory.hpp"
 #include "process.hpp"
 
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include <QQmlEngine>
 #include <QStandardPaths>
 #include <QtConcurrent/QtConcurrentRun>
@@ -18,7 +20,7 @@ Backend* s_instance = nullptr;
 }  // namespace
 
 Backend::Backend(IconProvider* icons, QObject* parent)
-  : QObject(parent), m_aur(&m_packages), m_icons(icons) {
+  : QObject(parent), m_aur(&m_list), m_icons(icons) {
     Q_ASSERT(s_instance == nullptr);
     s_instance       = this;
     m_aurEnabled     = m_settings.value(u"aur/enabled"_s, false).toBool();
@@ -152,24 +154,36 @@ void Backend::reload() {
     }
     m_loading = true;
     emit loadingChanged();
-    QtConcurrent::run(catalog::load).then(this, [this](std::expected<catalog::LoadResult, QString> result) {
-        onLoaded(std::move(result));
-    });
+    // build the theme index with the package list in the background,
+    // doesn't need to know context from GUI thread
+    // Plasma's platform theme gives no fallback paths, its own icon engine searches the pixmaps
+    auto fallbackPaths = QIcon::fallbackSearchPaths() + QStandardPaths::locateAll(QStandardPaths::GenericDataLocation, u"pixmaps"_s, QStandardPaths::LocateDirectory);
+    fallbackPaths.removeDuplicates();
+    const icontheme::Theme theme{
+        .name          = QIcon::themeName(),
+        .searchPaths   = QIcon::themeSearchPaths(),
+        .fallbackPaths = fallbackPaths,
+    };
+    QtConcurrent::run([theme] { return std::pair{catalog::load(), icontheme::appIcons(theme)}; })
+        .then(this, [this](std::pair<std::expected<catalog::LoadResult, QString>, QHash<QString, QString>> loaded) {
+            m_icons->setThemeIndex(std::move(loaded.second));
+            onLoaded(std::move(loaded.first));
+        });
 }
 
 void Backend::onLoaded(std::expected<catalog::LoadResult, QString> result) {
     if (result) {
-        m_error = result->packages.isEmpty() ? tr("The pacman databases are empty. Refresh them with a system update.") : QString();
+        m_error = result->packages.packages().isEmpty() ? tr("The pacman databases are empty. Refresh them with a system update.") : QString();
         if (m_dbWatcher.directories().isEmpty()) {
             m_dbWatcher.addPaths({result->dbPath + u"/local"_s, result->dbPath + u"/sync"_s});
         }
         m_updateNotice.setDatabase(result->dbPath, result->repos);
         m_icons->setIndex(std::move(result->icons));
-        m_packages.reset(std::move(result->packages));
+        m_packages.replace([&] { m_list = std::move(result->packages); });
         applyKnownUpdates();
     } else {
         m_error = result.error();
-        m_packages.reset({});
+        m_packages.replace([&] { m_list = {}; });
     }
     // the databases as libalpm parsed them, and the previous package list
     releaseFreedMemory();
@@ -178,7 +192,7 @@ void Backend::onLoaded(std::expected<catalog::LoadResult, QString> result) {
     for (const auto& section : std::as_const(m_curatedList.sections)) {
         CuratedSection shown{.title = section.title, .names = {}};
         for (const auto& name : section.names) {
-            if (const auto* pkg = m_packages.find(name); pkg != nullptr && !pkg->foreign()) {
+            if (const auto* pkg = m_list.find(name); pkg != nullptr && !pkg->foreign()) {
                 shown.names << name;
             }
         }
@@ -210,11 +224,17 @@ void Backend::applyKnownUpdates() {
     // The sync databases only know what the last refresh saw. Until checkupdates has
     // answered again, its previous answer still holds for all that was not updated since.
     m_newVersions.removeIf([this](const std::pair<const QString&, QString&>& update) {
-        const auto* pkg = m_packages.find(update.first);
+        const auto* pkg = m_list.find(update.first);
         return pkg == nullptr || !pkg->installed() || alpmdb::vercmp(pkg->installedVersion, update.second) >= 0;
     });
     if (!m_newVersions.isEmpty()) {
-        m_packages.applyUpdates(m_newVersions);
+        markUpdates(m_newVersions);
+    }
+}
+
+void Backend::markUpdates(const QHash<QString, QString>& newVersions) {
+    if (const auto rows = m_list.applyUpdates(newVersions)) {
+        m_packages.updated(rows->first, rows->second);
     }
 }
 
@@ -278,21 +298,21 @@ void Backend::onUpdatesChecked(int exitCode, QProcess::ExitStatus status) {
             versions.insert(fields.at(0), fields.at(3));
         }
     }
-    m_packages.applyUpdates(versions);
+    markUpdates(versions);
     m_newVersions = std::move(versions);
     ++m_revision;
     emit revisionChanged();
 }
 
 Package Backend::package(const QString& name) const {
-    const auto* pkg = m_packages.find(name);
+    const auto* pkg = m_list.find(name);
     return pkg == nullptr ? Package{} : *pkg;
 }
 
 void Backend::install(const QString& name) {
     QStringList targets{name};
     for (const auto& companion : m_curatedList.companions.value(name)) {
-        if (const auto* pkg = m_packages.find(companion); pkg != nullptr && !pkg->foreign() && !pkg->installed()) {
+        if (const auto* pkg = m_list.find(companion); pkg != nullptr && !pkg->foreign() && !pkg->installed()) {
             targets << companion;
         }
     }
@@ -332,7 +352,7 @@ bool isParu(const QString& name) {
 }  // namespace
 
 bool Backend::buildsWithoutParu(const QString& name) const {
-    const auto* inRepos = m_packages.find(u"paru"_s);
+    const auto* inRepos = m_list.find(u"paru"_s);
     return isParu(name) && (inRepos == nullptr || inRepos->foreign());
 }
 
@@ -344,7 +364,10 @@ void Backend::installParu() {
     // Built from source: paru-bin is linked against Arch's libraries, which Manjaro
     // stable often does not have yet (OpenSSL 4 in late 2026). Rust comes from the
     // repositories as a build dependency.
-    emit openAurRequested(AurPackage{.name = u"paru"_s, .pkgbase = u"paru"_s});
+    AurPackage paru;
+    paru.name    = u"paru"_s;
+    paru.pkgbase = u"paru"_s;
+    emit openAurRequested(paru);
 }
 
 void Backend::installManyFromAur(const QStringList& names) {

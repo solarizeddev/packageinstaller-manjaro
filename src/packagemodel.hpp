@@ -1,65 +1,56 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #pragma once
 
-#include "alpmdb.hpp"
+#include "packagelist.hpp"
 
 #include <QAbstractListModel>
 #include <QHash>
 #include <QSortFilterProxyModel>
 #include <QtQml/qqmlregistration.h>
 
+/// The packages of Backend's PackageList for the views. It only reads the list: every role
+/// is a field the delegates show, so a delegate gets an implicitly shared string, not a copy
+/// of the whole package.
 class PackageModel : public QAbstractListModel {
     Q_OBJECT
     QML_ELEMENT
     QML_UNCREATABLE("Provided by Backend")
 
  public:
-    enum Role { PackageRole = Qt::UserRole + 1, NameRole };
+    enum Role { NameRole = Qt::UserRole + 1, TitleRole, SummaryRole, SourceRole, InstalledRole, UpgradableRole, VersionRole, InstalledVersionRole };
 
-    using QAbstractListModel::QAbstractListModel;
+    explicit PackageModel(const PackageList& list, QObject* parent = nullptr) : QAbstractListModel(parent), m_list(list) { }
 
     int rowCount(const QModelIndex& parent = {}) const override;
     QVariant data(const QModelIndex& index, int role) const override;
     QHash<int, QByteArray> roleNames() const override;
 
-    void reset(QList<Package> packages);
-    /// Marks packages as upgradable with the version a fresh database offers (from `checkupdates`).
-    void applyUpdates(const QHash<QString, QString>& newVersions);
-
-    /// What the search compares against: the fields in lower case, so that a search needs
-    /// no case folding. Only used when `ascii` holds, where lower case and Unicode case
-    /// folding are the same thing; other packages are searched in their own fields.
-    struct SearchKey {
-        QString name;
-        QString title;
-        QString summary;
-        QString description;  ///< empty when it repeats the summary
-        bool ascii = false;
-    };
-
-    const QList<Package>& packages() const { return m_packages; }
-    const SearchKey& searchKey(qsizetype row) const { return m_keys.at(row); }
-    /// The position of a row when all packages are sorted by title, ignoring case; rows
-    /// whose titles compare equal share one.
-    qsizetype titleOrder(qsizetype row) const { return m_titleOrder.at(row); }
-    const Package& at(qsizetype row) const { return m_packages.at(row); }
-    const Package* find(const QString& name) const;
-    int upgradableCount() const;
+    [[nodiscard]] const PackageList& list() const { return m_list; }
+    /// Wraps the replacement of the whole list.
+    template <typename Replace>
+    void replace(Replace replace) {
+        beginResetModel();
+        replace();
+        endResetModel();
+    }
+    /// After PackageList::applyUpdates changed these rows.
+    void updated(qsizetype first, qsizetype last);
 
  private:
-    QList<Package> m_packages;
-    QList<SearchKey> m_keys;
-    QList<qsizetype> m_titleOrder;
-    QHash<QString, qsizetype> m_index;
+    const PackageList& m_list;
 };
 
-/// Search, category and state filtering on top of PackageModel, usable from QML.
+/// Search, category and state filtering over PackageModel
 class PackageFilter : public QSortFilterProxyModel {
     Q_OBJECT
     QML_ELEMENT
     Q_PROPERTY(QString query READ query WRITE setQuery NOTIFY queryChanged FINAL)
     Q_PROPERTY(QString category READ category WRITE setCategory NOTIFY categoryChanged FINAL)
     Q_PROPERTY(Mode mode READ mode WRITE setMode NOTIFY modeChanged FINAL)
+    /// Only these packages, in this order, for the home page.
+    Q_PROPERTY(QStringList names READ names WRITE setNames NOTIFY namesChanged FINAL)
+    /// At most this many of names.
+    Q_PROPERTY(int limit READ limit WRITE setLimit NOTIFY limitChanged FINAL)
     Q_PROPERTY(int count READ count NOTIFY countChanged FINAL)
 
  public:
@@ -74,12 +65,18 @@ class PackageFilter : public QSortFilterProxyModel {
     void setCategory(const QString& category);
     Mode mode() const { return m_mode; }
     void setMode(Mode mode);
+    QStringList names() const { return m_names; }
+    void setNames(const QStringList& names);
+    int limit() const { return m_limit; }
+    void setLimit(int limit);
     int count() const { return rowCount(); }
 
  signals:
     void queryChanged();
     void categoryChanged();
     void modeChanged();
+    void namesChanged();
+    void limitChanged();
     void countChanged();
 
  protected:
@@ -87,7 +84,7 @@ class PackageFilter : public QSortFilterProxyModel {
     bool lessThan(const QModelIndex& left, const QModelIndex& right) const override;
 
  private:
-    int rank(const Package& pkg, const PackageModel::SearchKey& key) const;
+    int rank(const Package& pkg, const PackageList::SearchKey& key) const;
     template <typename Apply>
     void refilter(Apply apply, bool resort);
     void updateCount();
@@ -96,6 +93,9 @@ class PackageFilter : public QSortFilterProxyModel {
     QString m_needle;  ///< the query in lower case; empty unless the query is plain ASCII
     QString m_category;
     Mode m_mode = All;
+    QStringList m_names;
+    QHash<QString, int> m_position;  ///< in `m_names`
+    int m_limit = -1;
     mutable QList<int> m_rank;  ///< search rank per source row, filled by filterAcceptsRow
     int m_count        = 0;
     bool m_refiltering = false;

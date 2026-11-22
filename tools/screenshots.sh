@@ -25,7 +25,7 @@ set -e
 [ -e /run/test-ca.pem ] && { cp /run/test-ca.pem /etc/ca-certificates/trust-source/anchors/test-ca.crt; update-ca-trust; }
 [ -n "$TEST_MIRROR" ] && printf "Server = %s\n" "$TEST_MIRROR" >/etc/pacman.d/mirrorlist
 pacman -Sy --noconfirm --needed archlinux-keyring manjaro-keyring >/dev/null 2>&1
-pacman -Su --noconfirm --needed base-devel cmake ninja git qt6-tools appstream-qt archlinux-appstream-data \
+pacman -Su --noconfirm --needed base-devel cmake ninja git qt6-tools vulkan-headers appstream-qt archlinux-appstream-data \
     elfutils hicolor-icon-theme kimageformats libjxl manjaro-icons pacman-mirrors polkit qt6-base \
     qt6-declarative qt6-svg xorg-server-xvfb xdotool imagemagick noto-fonts ttf-dejavu breeze-icons >/out/deps.log 2>&1
 mkdir /tmp/src && tar -C /src --exclude=./build --exclude=./.git -cf - . | tar -C /tmp/src -xf -

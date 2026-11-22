@@ -207,12 +207,18 @@ class TestAppImage : public QObject {
           {"name": "Numbered", "path": "/opt/n.AppImage", "version": "1.18.2", "release_tag": null, "update_type": 2, "repo_owner": "o", "repo_name": "n"},
           {"name": "Elsewhere", "path": "/opt/e.AppImage", "update_type": "gitlab", "repo_owner": "o", "repo_name": "e"},
           {"name": "Odd", "path": "/opt/o.AppImage", "update_type": "github", "repo_owner": "o/x", "repo_name": "../e"},
+          {"name": "LocalSend", "path": "/opt/LocalSend-1.17.0.AppImage", "update_type": "github", "repo_owner": "localsend",
+           "repo_name": "localsend", "raw_update_info": "gh-releases-zsync|LocalSend|localsend|latest|LocalSend-*-linux-x86-64.AppImage.zsync"},
+          {"name": "Borrowed", "path": "/opt/b.AppImage", "update_type": "github", "repo_owner": "o", "repo_name": "b",
+           "raw_update_info": "gh-releases-zsync|someone|else|latest|B-*-x86_64.AppImage"},
           {"name": "Relative", "path": "bin/r.AppImage"},
           {"path": "/opt/nameless.AppImage"},
+          {"name": "../../.config/autostart/x"},
+          {"name": ".."},
           "text", 7
         ])";
         const auto apps = appimage::parseShellyDatabase(database, u"/home/u/.local/bin"_s);
-        QCOMPARE(apps.size(), 5);
+        QCOMPARE(apps.size(), 7);
         QCOMPARE(apps.at(0).name, u"Editor-1.2-x86_64"_s);
         QCOMPARE(apps.at(0).title, u"Editor"_s);
         QCOMPARE(apps.at(0).path, u"/home/u/.local/bin/Editor-1.2-x86_64.AppImage"_s);
@@ -221,7 +227,7 @@ class TestAppImage : public QObject {
         QCOMPARE(apps.at(0).source->slug(), u"owner/editor"_s);
         QCOMPARE(appimage::shellyIconFiles(apps.at(0)),
             QStringList({u"icons/hicolor/scalable/apps/editor.svg"_s, u"icons/hicolor/256x256/apps/editor.png"_s}));
-        QVERIFY(appimage::shellyIconFiles({.name = u"x"_s, .title = {}, .path = {}, .icon = u"../x"_s, .source = {}, .release = {}}).isEmpty());
+        QVERIFY(appimage::shellyIconFiles({.name = u"x"_s, .title = {}, .path = {}, .icon = u"../x"_s, .source = {}, .release = {}, .variant = {}}).isEmpty());
         QVERIFY(appimage::shellyIconFiles(apps.at(1)).isEmpty());
         // no path: where Shelly would look for it
         QCOMPARE(apps.at(1).title, u"Plain"_s);
@@ -232,6 +238,11 @@ class TestAppImage : public QObject {
         QCOMPARE(apps.at(2).release, u"1.18.2"_s);
         QVERIFY(!apps.at(3).source);  // only GitHub is followed here
         QVERIFY(!apps.at(4).source);  // not a repository
+        // the name of a file Shelly was given, else the pattern of the update information
+        QCOMPARE(apps.at(0).variant, appimage::variant(u"Editor-2.0-x86_64.AppImage"_s));
+        QCOMPARE(apps.at(5).variant, appimage::variant(u"LocalSend-1.18.2-linux-x86-64.AppImage"_s));
+        QCOMPARE(apps.at(6).variant, u"b.appimage"_s);  // the information of another repository
+        QVERIFY(apps.at(1).variant.isEmpty());          // not updated from GitHub
 
         QVERIFY(appimage::parseShellyDatabase("not json", u"/b"_s).isEmpty());
         QVERIFY(appimage::parseShellyDatabase("{}", u"/b"_s).isEmpty());
@@ -265,6 +276,124 @@ class TestAppImage : public QObject {
         QCOMPARE(appimage::shellyInstallDirectory(R"({"AppImageInstallPath": "/opt/appimages"})"), u"/opt/appimages"_s);
         QVERIFY(appimage::shellyInstallDirectory(R"({"AppImageInstallPath": null})").isEmpty());
         QVERIFY(appimage::shellyInstallDirectory("").isEmpty());
+    }
+
+    void gearLeverConfig() {
+        // as Gear Lever 4.6 writes it, with the empty sections it leaves for files it only looked at
+        const auto config = QByteArray(R"([DEFAULT]
+fetch-updates-in-background = no
+
+[app.de1cf8ffa34d272d3e7590b01dbee6dd.update_manager]
+
+[app.d13b5beea46f0d7af318a54855af511e]
+default_exec_arguments =
+name = LocalSend
+file_path = /home/u/AppImages/localsend.appimage
+
+[app.f5fec74c5458597804beeb85e687bde6]
+default_exec_arguments = %F
+name = Neovim
+file_path = /home/u/AppImages/neovim.appimage
+website: https://neovim.io
+
+[app.d13b5beea46f0d7af318a54855af511e.update_manager]
+repo = localsend/localsend
+repo_filename = LocalSend-*-linux-x86-64.AppImage
+allow_prereleases = False
+manager = GithubUpdater
+
+# a comment
+[app.0123456789abcdef0123456789abcdef]
+name = Relative
+file_path = AppImages/relative.appimage
+
+[app.fedcba9876543210fedcba9876543210]
+name = GitLab
+FILE_PATH = /home/u/AppImages/gitlab.appimage
+  continued = not a key
+
+[app.fedcba9876543210fedcba9876543210.update_manager]
+repo = owner/project
+manager = GitlabUpdater
+
+[app.00000000000000000000000000000001]
+file_path = /home/u/AppImages/nightly.appimage
+
+[app.00000000000000000000000000000001.update_manager]
+repo = owner/nightly
+repo_filename = Nightly-*.AppImage
+allow_prereleases = True
+manager = GithubUpdater
+)");
+        const auto apps = appimage::parseGearLeverConfig(config);
+        QCOMPARE(apps.size(), 4);
+        QCOMPARE(apps.at(0).path, u"/home/u/AppImages/localsend.appimage"_s);
+        QVERIFY(apps.at(0).source);
+        QCOMPARE(apps.at(0).source->slug(), u"localsend/localsend"_s);
+        QVERIFY(apps.at(0).source->file.isEmpty());
+        QCOMPARE(apps.at(0).variant, appimage::variant(u"LocalSend-1.18.2-linux-x86-64.AppImage"_s));
+        // updates from the file itself or from elsewhere than GitHub are not carried over
+        QCOMPARE(apps.at(1).path, u"/home/u/AppImages/neovim.appimage"_s);
+        QVERIFY(!apps.at(1).source);
+        QCOMPARE(apps.at(2).path, u"/home/u/AppImages/gitlab.appimage"_s);
+        QVERIFY(!apps.at(2).source);
+        // the newest release could be older than the pre-release it is on
+        QCOMPARE(apps.at(3).path, u"/home/u/AppImages/nightly.appimage"_s);
+        QVERIFY(!apps.at(3).source);
+
+        QVERIFY(appimage::parseGearLeverConfig("").isEmpty());
+        QVERIFY(appimage::parseGearLeverConfig("not an ini file\n[app.x]\nfile_path = /a\n").isEmpty());
+    }
+
+    void gearLeverEntries() {
+        const auto path = u"/home/u/AppImages/localsend.appimage"_s;
+        QHash<QString, QString> entry{{u"TryExec"_s, path}, {u"Icon"_s, u"/home/u/AppImages/.icons/localsend"_s},
+            {u"X-AppImage-Name"_s, u"LocalSend"_s}, {u"Exec"_s, u"env DESKTOPINTEGRATION=1 "_s + path}};
+        QCOMPARE(appimage::gearLeverIcon(entry, path), u"/home/u/AppImages/.icons/localsend"_s);
+        QVERIFY(appimage::gearLeverIcon(entry, u"/home/u/AppImages/other.appimage"_s).isEmpty());
+        // named after the app, in whatever letters it has
+        auto named = entry;
+        for (const auto& icon : {u"/home/u/AppImages/.icons/äpfel_(beta).png"_s, u"/home/u/AppImages/.icons/録画.svg"_s}) {
+            named[u"Icon"_s] = icon;
+            QCOMPARE(appimage::gearLeverIcon(named, path), icon);
+        }
+
+        // not copied by Gear Lever: no icon of its own next to the file
+        auto other = entry;
+        other[u"Icon"_s] = u"/usr/share/icons/hicolor/48x48/apps/app.png"_s;
+        QVERIFY(appimage::gearLeverIcon(other, path).isEmpty());
+        other[u"Icon"_s] = u"applications-other"_s;
+        QVERIFY(appimage::gearLeverIcon(other, path).isEmpty());
+        for (const auto& icon : {u"/home/u/AppImages/.icons/"_s, u"/home/u/AppImages/.icons/../x"_s, u"/home/u/AppImages/.icons/a/b"_s}) {
+            other[u"Icon"_s] = icon;
+            QVERIFY2(appimage::gearLeverIcon(other, path).isEmpty(), qPrintable(icon));
+        }
+        // written by someone else, or by this app
+        other = entry;
+        other.remove(u"X-AppImage-Name"_s);
+        QVERIFY(appimage::gearLeverIcon(other, path).isEmpty());
+        other = entry;
+        other.insert(appimage::PATH_KEY, path);
+        QVERIFY(appimage::gearLeverIcon(other, path).isEmpty());
+    }
+
+    void patternVariants() {
+        const auto release = appimage::variant(u"App-2.0-x86_64.AppImage"_s);
+        QCOMPARE(appimage::patternVariant(u"App-*-x86_64.AppImage"_s), release);
+        QCOMPARE(appimage::patternVariant(u"App-v*-x86_64.AppImage"_s), appimage::variant(u"App-v2.0-x86_64.AppImage"_s));
+        QCOMPARE(appimage::patternVariant(u"App-2.0-x86_64.AppImage"_s), release);
+        QCOMPARE(appimage::patternVariant(u"App-*-x86_64.AppImage.zsync"_s), release);
+        QVERIFY(appimage::patternVariant(u"App-*-lite-x86_64.AppImage"_s) != release);
+        // the name of the app, not a version
+        QVERIFY(appimage::patternVariant(u"*-x86_64.AppImage.zsync"_s).isEmpty());
+        // which file it is cannot be told
+        QVERIFY(appimage::patternVariant(u"App*.AppImage"_s).isEmpty());
+        QVERIFY(appimage::patternVariant(u"App-*x86_64.AppImage"_s).isEmpty());
+        QVERIFY(appimage::patternVariant(u"App-?.AppImage"_s).isEmpty());
+        QVERIFY(appimage::patternVariant(u"App-[0-9].AppImage"_s).isEmpty());
+        QVERIFY(appimage::patternVariant(u"*.AppImage"_s).isEmpty());
+        QVERIFY(appimage::patternVariant(u"*"_s).isEmpty());
+        QVERIFY(appimage::patternVariant({}).isEmpty());
     }
 
     void sources_data() {
@@ -408,6 +537,17 @@ class TestAppImage : public QObject {
         QCOMPARE(appimage::choose(assets.mid(0, 1), u"other-#.appimage"_s), -1);
         QCOMPARE(appimage::choose(assets.mid(0, 1), QString()), 0);
         QCOMPARE(appimage::choose({}, u"other-#.appimage"_s), -1);
+
+        // a kind another program's records suggest: the only file there is continues it too
+        QCOMPARE(appimage::choose(assets, appimage::variant(u"App-1.9-lite-x86_64.AppImage"_s), true), 1);
+        QCOMPARE(appimage::choose(assets, u"other-#.appimage"_s, true), -1);
+        QCOMPARE(appimage::choose({}, u"other-#.appimage"_s, true), -1);
+        // as for a file Shelly downloaded and named after the app
+        const auto localsend = appimage::parseRelease(releaseJson(u"v1.18.2"_s, {file(3, u"LocalSend-1.18.2-linux-x86-64.AppImage"_s)}))->assets;
+        for (const auto& name : {u"LocalSend.AppImage"_s, u"LocalSend-v1.17.0.AppImage"_s}) {
+            QCOMPARE(appimage::choose(localsend, appimage::variant(name)), -1);
+            QCOMPARE(appimage::choose(localsend, appimage::variant(name), true), 0);
+        }
     }
 };
 

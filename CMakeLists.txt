@@ -26,13 +26,30 @@ CPMAddPackage(
     NAME rapidyaml
     GITHUB_REPOSITORY biojppm/rapidyaml
     GIT_TAG v0.16.0
-    EXCLUDE_FROM_ALL YES)
+    EXCLUDE_FROM_ALL YES
+)
+CPMAddPackage(
+    NAME fmt
+    GITHUB_REPOSITORY fmtlib/fmt
+    GIT_TAG 12.2.0
+    EXCLUDE_FROM_ALL YES
+)
+CPMAddPackage(
+    NAME spdlog
+    GITHUB_REPOSITORY gabime/spdlog
+    GIT_TAG v1.17.0
+    EXCLUDE_FROM_ALL YES
+)
 # Only the header is used, its CMakeLists is too old for current CMake.
 CPMAddPackage(
     NAME backward
     GITHUB_REPOSITORY bombela/backward-cpp
     GIT_TAG v1.6
-    DOWNLOAD_ONLY YES)
+    DOWNLOAD_ONLY YES
+)
+
+# supress fmt&spdlog warnings
+set_target_properties(fmt spdlog PROPERTIES SYSTEM TRUE)
 
 add_library(backward INTERFACE)
 target_include_directories(backward SYSTEM INTERFACE "${backward_SOURCE_DIR}")
@@ -86,12 +103,18 @@ if(PI_RATE_MIRRORS)
     list(APPEND PI_BRAND_DEFINITIONS PI_RATE_MIRRORS="${PI_RATE_MIRRORS}" "PI_RATE_MIRRORS_ARGV=${argv}")
 endif()
 
+# import backend
+if(BUILD_TESTING)
+    include(CTest)
+endif()
+add_subdirectory(libpi)
+
 ##
 ## PKGBUILD scanner: text analysis only, shared by the GUI, the CLI and the tests.
 ##
-add_library(pi-scan STATIC src/pkgscan.hpp src/pkgscan.cpp src/gitoutput.hpp src/gitoutput.cpp)
+add_library(pi-scan STATIC src/files.hpp src/pkgscan.hpp src/pkgscan.cpp src/gitoutput.hpp src/gitoutput.cpp)
 target_include_directories(pi-scan PUBLIC src)
-target_link_libraries(pi-scan PUBLIC Qt6::Core PRIVATE project_options project_warnings)
+target_link_libraries(pi-scan PUBLIC Qt6::Core PRIVATE pi::pi project_options project_warnings)
 # the GUI registers Finding, ScriptFile and DiffRun for QML
 qt_extract_metatypes(pi-scan)
 
@@ -112,14 +135,17 @@ target_link_libraries(pi-appimage PUBLIC Qt6::Core PRIVATE project_options proje
 ## GUI
 ##
 qt_add_executable(${PROJECT_NAME}
-    src/main.cpp src/process.hpp src/memory.hpp
+    src/main.cpp src/files.hpp src/process.hpp src/qt_utils.hpp src/memory.hpp
     src/alpmdb.hpp src/alpmdb.cpp
     src/catalog.hpp src/catalog.cpp
+    src/packagelist.hpp src/packagelist.cpp
     src/packagemodel.hpp src/packagemodel.cpp
     src/aurclient.hpp src/aurclient.cpp
     src/flatpakclient.hpp src/flatpakclient.cpp
     src/appimageclient.hpp src/appimageclient.cpp
     src/iconprovider.hpp src/iconprovider.cpp
+    src/icontheme.hpp src/icontheme.cpp
+    src/graphics.hpp src/graphics.cpp
     src/transaction.hpp src/transaction.cpp
     src/updatenotice.hpp src/updatenotice.cpp
     src/backend.hpp src/backend.cpp
@@ -198,9 +224,11 @@ qt_add_qml_module(${PROJECT_NAME}
         icons/cachyos-kernel.png
         icons/cachyos-logo.png)
 
-# i18n/cachyos-pi_en.ts only carries the English plural forms ("1 package" / "2 packages").
-# Refresh the .ts files with: cmake --build build --target update_translations
-qt_add_translations(TARGETS ${PROJECT_NAME} SOURCE_TARGETS ${PROJECT_NAME} pi-scan TS_FILE_DIR i18n)
+# glob over all translations in the folder
+file(GLOB PI_TS_FILES CONFIGURE_DEPENDS i18n/cachyos-pi_*.ts)
+list(REMOVE_ITEM PI_TS_FILES ${CMAKE_CURRENT_SOURCE_DIR}/i18n/cachyos-pi_en.ts)
+qt_add_translations(TARGETS ${PROJECT_NAME} SOURCE_TARGETS ${PROJECT_NAME} pi-scan
+    TS_FILES ${PI_TS_FILES} PLURALS_TS_FILE i18n/cachyos-pi_en.ts)
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE
     ${PI_BRAND_DEFINITIONS}
@@ -208,7 +236,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
     PI_HELPER_PATH="${PI_HELPER_DIR}/${PI_HELPER_NAME}")
 target_include_directories(${PROJECT_NAME} PRIVATE src)
 target_link_libraries(${PROJECT_NAME} PRIVATE
-    project_options project_warnings pi-scan pi-appimage
+    project_options project_warnings pi::pi pi-scan pi-appimage
     Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Qml Qt6::Quick Qt6::QuickControls2 Qt6::Network Qt6::Concurrent
     AppStreamQt PkgConfig::LIBALPM ryml::ryml backward)
 
@@ -221,7 +249,7 @@ set_source_files_properties(${pi_sources} TARGET_DIRECTORY ${PROJECT_NAME} PROPE
 ## Privileged helper: the only thing that runs as root (through pkexec).
 ##
 add_executable(cachyos-pi-helper src/helper/main.cpp src/helper/shared.hpp)
-target_link_libraries(cachyos-pi-helper PRIVATE project_options project_warnings)
+target_link_libraries(cachyos-pi-helper PRIVATE pi::names project_options project_warnings)
 target_compile_definitions(cachyos-pi-helper PRIVATE ${PI_BRAND_DEFINITIONS})
 
 if(PI_APP_ID)
@@ -262,7 +290,6 @@ endif()
 ##
 ## Tests
 ##
-include(CTest)
 if(BUILD_TESTING)
     find_package(Qt6 6.10 REQUIRED COMPONENTS Test)
     qt_add_executable(test-pkgscan tests/test_pkgscan.cpp)
@@ -276,12 +303,31 @@ if(BUILD_TESTING)
 
     qt_add_executable(test-pkglist tests/test_pkglist.cpp
         src/alpmdb.hpp src/alpmdb.cpp
+        src/packagelist.hpp src/packagelist.cpp
         src/catalog.hpp src/catalog.cpp)
     target_compile_definitions(test-pkglist PRIVATE PKGLIST_FILE="${PI_PKGLIST}")
     target_include_directories(test-pkglist PRIVATE src)
-    target_link_libraries(test-pkglist PRIVATE project_options project_warnings
+    target_link_libraries(test-pkglist PRIVATE project_options project_warnings pi::pi
         Qt6::Test Qt6::Qml AppStreamQt PkgConfig::LIBALPM ryml::ryml)
     add_test(NAME pkglist COMMAND test-pkglist)
+
+    qt_add_executable(test-packagemodel tests/test_packagemodel.cpp
+        src/alpmdb.hpp src/alpmdb.cpp
+        src/packagelist.hpp src/packagelist.cpp
+        src/packagemodel.hpp src/packagemodel.cpp)
+    target_include_directories(test-packagemodel PRIVATE src)
+    target_link_libraries(test-packagemodel PRIVATE project_options project_warnings pi::pi
+        Qt6::Test Qt6::Qml PkgConfig::LIBALPM)
+    add_test(NAME packagemodel COMMAND test-packagemodel)
+
+    qt_add_executable(test-packagefilter tests/test_packagefilter.cpp
+        src/alpmdb.hpp src/alpmdb.cpp
+        src/packagelist.hpp src/packagelist.cpp
+        src/packagemodel.hpp src/packagemodel.cpp)
+    target_include_directories(test-packagefilter PRIVATE src)
+    target_link_libraries(test-packagefilter PRIVATE project_options project_warnings pi::pi
+        Qt6::Test Qt6::Qml PkgConfig::LIBALPM)
+    add_test(NAME packagefilter COMMAND test-packagefilter)
 
     qt_add_executable(test-updatenotice tests/test_updatenotice.cpp
         src/updatenotice.hpp src/updatenotice.cpp)
@@ -293,7 +339,7 @@ if(BUILD_TESTING)
 
     add_executable(cachyos-pi-helper-test src/helper/main.cpp)
     target_compile_definitions(cachyos-pi-helper-test PRIVATE PI_HELPER_TESTING)
-    target_link_libraries(cachyos-pi-helper-test PRIVATE project_options project_warnings)
+    target_link_libraries(cachyos-pi-helper-test PRIVATE pi::names project_options project_warnings)
 
     qt_add_executable(test-helper tests/test_helper.cpp)
     target_compile_definitions(test-helper PRIVATE
@@ -306,4 +352,9 @@ if(BUILD_TESTING)
     qt_add_executable(test-appimage tests/test_appimage.cpp)
     target_link_libraries(test-appimage PRIVATE pi-appimage project_options Qt6::Test)
     add_test(NAME appimage COMMAND test-appimage)
+
+    qt_add_executable(test-icontheme tests/test_icontheme.cpp src/icontheme.hpp src/icontheme.cpp)
+    target_include_directories(test-icontheme PRIVATE src)
+    target_link_libraries(test-icontheme PRIVATE project_options project_warnings Qt6::Test)
+    add_test(NAME icontheme COMMAND test-icontheme)
 endif()

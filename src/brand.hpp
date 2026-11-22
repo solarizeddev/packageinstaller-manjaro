@@ -6,7 +6,6 @@
 // cmake/Manjaro.cmake), so the upstream build behaves exactly as before.
 
 class QQmlEngine;
-class QTranslator;
 
 namespace brand {
 
@@ -19,8 +18,9 @@ bool active();
 ///   place of CachyOS (and a few texts that say more than the name).
 /// - The window icon, desktop file name, organisation and application name
 ///   follow the build's settings.
-/// `loaded` is the translator main() loaded, which gets wrapped.
-void apply(QTranslator* loaded);
+/// The app's translators (children of the application object, as main() makes
+/// them) are taken out and asked through it.
+void apply();
 
 /// Call before the QML is loaded: the app's pictures of the CachyOS logo are
 /// replaced by the distribution's logo from the icon theme, at any size.

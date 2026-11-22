@@ -61,9 +61,9 @@ both packages and checks the two together.
 ## Build
 
 ```bash
-sudo pacman -S --needed base-devel cmake ninja git qt6-tools appstream-qt archlinux-appstream-data \
+sudo pacman -S --needed base-devel cmake ninja git qt6-tools vulkan-headers appstream-qt archlinux-appstream-data \
     elfutils kimageformats libjxl manjaro-icons pacman-mirrors qt6-declarative qt6-svg
-cmake --fresh -C cmake/Manjaro.cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr
+cmake --fresh -C cmake/Manjaro.cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX=/usr -DBUILD_TESTING=ON
 cmake --build build && ctest --test-dir build
 ./build/packageinstaller-manjaro
 ```

@@ -79,6 +79,10 @@ if [ -z "$ref" ]; then
     ref=$(git ls-remote --tags --refs upstream 'v2.*' | sed 's|.*refs/tags/||' | sort -V | tail -n1)
     [ -n "$ref" ] || ref=upstream/fresh
 fi
+# a tag is taken from upstream itself: a clone can hold a same-named tag from elsewhere
+case $ref in
+v*) git fetch --quiet --force upstream "refs/tags/$ref:refs/tags/$ref" ;;
+esac
 git rev-parse --verify --quiet "$ref^{commit}" >/dev/null || { echo "Unknown ref: $ref" >&2; exit 1; }
 
 count=$(git rev-list --count "HEAD..$ref")

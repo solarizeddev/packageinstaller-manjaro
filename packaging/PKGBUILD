@@ -13,7 +13,7 @@ license=(GPL-3.0-or-later)
 # pacman-mirrors in place of cachyos-rate-mirrors
 depends=(appstream-qt archlinux-appstream-data elfutils glibc hicolor-icon-theme kimageformats
          libgcc libjxl libstdc++ manjaro-icons pacman pacman-mirrors polkit qt6-base qt6-declarative qt6-svg)
-makedepends=(cmake git ninja qt6-tools)
+makedepends=(cmake git ninja qt6-tools vulkan-headers)
 optdepends=('paru: build packages from the AUR (paru is itself in the AUR)'
             'git: review and build packages from the AUR'
             'flatpak: install Flatpak apps'
@@ -32,12 +32,13 @@ build() {
     # --fresh: makepkg -f keeps src/build, whose cache would win over -C
     cmake --fresh -C "$_root/cmake/Manjaro.cmake" -S "$_root" -B build -G Ninja \
         -DCMAKE_BUILD_TYPE=Release \
-        -DCMAKE_INSTALL_PREFIX=/usr
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DBUILD_TESTING=ON
     cmake --build build
 }
 
 check() {
-    ctest --test-dir build --output-on-failure
+    ctest --test-dir build --output-on-failure --no-tests=error
 }
 
 package() {

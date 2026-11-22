@@ -1,5 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "pkgscan.hpp"
+#include "files.hpp"
+
+#include "pi/names.hpp"
 
 #include <QCoreApplication>
 #include <QDir>
@@ -37,8 +40,9 @@ enum Group : unsigned { NoGroup = 0U,
     Net                         = 1U,
     Decode                      = 2U };
 
-QString tr(const char* text) {
-    return QCoreApplication::translate("pkgscan", text);
+// TOOD(vnepogodin): drop that legacy shit
+QString tr(const char* text, const char* disambiguation = nullptr, int n = -1) {
+    return QCoreApplication::translate("pkgscan", text, disambiguation, n);
 }
 
 /// Something at the position of a command, as opposed to an argument or a string.
@@ -232,13 +236,8 @@ void applyRules(const QString& code, QStringView raw, int line, unsigned scope, 
     }
 }
 
-/// Letters, digits and "@._+-", not starting with "." or "-": a name that stays inside its directory.
-bool plainName(QStringView name, bool upper) {
-    const auto allowed = [upper](QChar c) {
-        const auto u = c.unicode();
-        return (u >= u'a' && u <= u'z') || (upper && u >= u'A' && u <= u'Z') || (u >= u'0' && u <= u'9') || QStringView(u"@._+-").contains(c);
-    };
-    return !name.isEmpty() && name.size() <= 128 && name.front() != u'.' && name.front() != u'-' && std::ranges::all_of(name, allowed);
+bool plainName(QStringView name, pi::utils::NameRules rules) {
+    return std::cmp_less_equal(name.size(), rules.max_size) && pi::utils::is_plain_name(name.toUtf8(), rules);
 }
 
 // ---------------------------------------------------------------------------------------
@@ -584,7 +583,7 @@ void scanSources(const Sources& sources, const QString& text, Report& report, An
             };
 
             if (!address.contains("://"_L1)) {
-                if (plainName(address, true) && !plainLocal.contains(address)) {
+                if (plainName(address, pi::utils::kLocalFileName) && !plainLocal.contains(address)) {
                     plainLocal << address;
                 }
                 continue;
@@ -637,7 +636,7 @@ void scanSources(const Sources& sources, const QString& text, Report& report, An
     // install scriptlets first, in the order of the PKGBUILD
     QStringList installs;
     for (const auto& install : sources.installs) {
-        if (plainName(install, true) && !installs.contains(install)) {
+        if (plainName(install, pi::utils::kLocalFileName) && !installs.contains(install)) {
             installs << install;
         }
     }
@@ -849,15 +848,16 @@ QList<Finding> scanMetadata(const Metadata& meta, const QDateTime& now) {
     }
     if (ageDays >= 0 && ageDays < 30) {
         add("new-package", Severity::Warning, tr("This package is very new"),
-            tr("It was first submitted %1 day(s) ago, so few people have looked at it.").arg(ageDays));
+            tr("It was first submitted %n day(s) ago, so few people have looked at it.", nullptr, static_cast<int>(ageDays)));
     }
     if (editHours >= 0 && editHours < 72 && ageDays >= 30) {
         add("recent-change", Severity::Info, tr("This package changed very recently"),
-            tr("The last change is %1 hour(s) old. Malicious updates are usually found and removed within days.").arg(editHours));
+            tr("The last change is %n hour(s) old. Malicious updates are usually found and removed within days.", nullptr,
+                static_cast<int>(editHours)));
     }
     if (meta.votes < 3 && meta.popularity < 0.05) {
         add("few-users", Severity::Info, tr("Hardly anybody uses this package"),
-            tr("It has %1 vote(s). Problems in rarely used packages stay unnoticed for longer.").arg(meta.votes));
+            tr("It has %n vote(s). Problems in rarely used packages stay unnoticed for longer.", nullptr, meta.votes));
     }
     return findings;
 }
@@ -953,12 +953,7 @@ QString srcinfoVersion(QStringView srcinfo) {
 }
 
 std::optional<QString> readText(const QString& path, qint64 maxSize) {
-    const QFileInfo info(path);
-    QFile file(path);
-    if (info.isSymLink() || !info.isFile() || info.size() > maxSize || !file.open(QIODevice::ReadOnly)) {
-        return std::nullopt;
-    }
-    return QString::fromUtf8(file.readAll());
+    return readCapped(path, maxSize, pi::file_utils::Links::Refuse).transform([](const QByteArray& bytes) { return QString::fromUtf8(bytes); });
 }
 
 LocalFiles collectFiles(const QDir& dir, Analysis& analysis, qsizetype maxFiles, qint64 maxSize) {
@@ -983,7 +978,7 @@ LocalFiles collectFiles(const QDir& dir, Analysis& analysis, qsizetype maxFiles,
 }
 
 bool validPkgbase(QStringView name) {
-    return plainName(name, false);
+    return plainName(name, pi::utils::kPkgbase);
 }
 
 void sort(QList<Finding>& findings) {

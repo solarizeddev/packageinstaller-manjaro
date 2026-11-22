@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "backend.hpp"
 #include "brand.hpp"
+#include "graphics.hpp"
 #include "instance.hpp"
 #include "iconprovider.hpp"
 
 #include <QApplication>
 #include <QFileInfo>
 #include <QIcon>
+#include <QLibraryInfo>
 #include <QQmlApplicationEngine>
 #include <QQuickStyle>
 #include <QTranslator>
@@ -14,6 +16,26 @@
 #include <backward.hpp>
 
 using namespace Qt::StringLiterals;
+
+namespace {
+
+/** Set up translations */
+void initTranslations(QCoreApplication& app) {
+    auto* english    = new QTranslator(&app);
+    auto* translator = new QTranslator(&app);
+    auto* qt_trans   = new QTranslator(&app);
+    if (english->load(u":/i18n/cachyos-pi_en.qm"_s)) {
+        QCoreApplication::installTranslator(english);
+    }
+    if (translator->load(QLocale(), u"cachyos-pi"_s, u"_"_s, u":/i18n"_s)) {
+        QCoreApplication::installTranslator(translator);
+    }
+    if (qt_trans->load(QLocale(), u"qt"_s, u"_"_s, QLibraryInfo::path(QLibraryInfo::TranslationsPath))) {
+        QCoreApplication::installTranslator(qt_trans);
+    }
+}
+
+}  // namespace
 
 int main(int argc, char** argv) {
     // prints a stack trace on a crash, then re-raises the signal
@@ -27,19 +49,16 @@ int main(int argc, char** argv) {
     QGuiApplication::setDesktopFileName(u"cachyos-pi"_s);
     QGuiApplication::setWindowIcon(QIcon::fromTheme(u"cachyos-pi"_s, QIcon(u":/qt/qml/CachyOS/PackageInstaller/icons/cachyos-pi.png"_s)));
 
-    // Without a translation for the locale, still load the English plural forms.
-    QTranslator translator;
-    if (translator.load(QLocale(), u"cachyos-pi"_s, u"_"_s, u":/i18n"_s) || translator.load(u":/i18n/cachyos-pi_en.qm"_s)) {
-        QCoreApplication::installTranslator(&translator);
-    }
-    brand::apply(&translator);  // Manjaro fork: a distribution's name and logo
+    initTranslations(app);
+    brand::apply();  // Manjaro fork: a distribution's name and logo
     // Manjaro fork: one window; "--updates" from the update notifier
     if (brand::active() && instance::forwardToRunning()) {
         return 0;
     }
 
-    // The UI brings its own look; Basic is the style meant for customisation.
+    // We enforce the custom UI style.
     QQuickStyle::setStyle(u"Basic"_s);
+    graphics::selectBackend();
 
     auto* icons = new IconProvider;  // owned by the engine below
     Backend backend(icons);
@@ -51,8 +70,7 @@ int main(int argc, char** argv) {
     QQmlApplicationEngine engine;
     brand::applyToEngine(engine);  // Manjaro fork
     engine.addImageProvider(u"pkgicon"_s, icons);
-    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); },
-        Qt::QueuedConnection);
+    QObject::connect(&engine, &QQmlApplicationEngine::objectCreationFailed, &app, [] { QCoreApplication::exit(1); }, Qt::QueuedConnection);
     engine.loadFromModule("CachyOS.PackageInstaller", "Main");
     if (brand::active()) {
         instance::serve(engine);  // Manjaro fork

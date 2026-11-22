@@ -53,21 +53,34 @@ const QHash<QString, QString>& wholeTexts() {
 
 QString rebrand(const QString& text) {
     auto changed = text;
+    // the tool first: its name contains the distribution's
+    changed.replace("cachyos-rate-mirrors"_L1, "pacman-mirrors"_L1);
     return changed.replace("CachyOS"_L1, QLatin1StringView(PI_DISTRO_NAME));
 }
 
-/// Asks the loaded translator first, then rebrands what it gives (or the English text).
+/// Asks the app's translators, then rebrands what they give (or the English text).
 class BrandTranslator final : public QTranslator {
  public:
-    explicit BrandTranslator(QTranslator* inner) : m_inner(inner) {}
+    /// `inner` in the order Qt would ask them: the last installed first.
+    explicit BrandTranslator(QList<QTranslator*> inner) : m_inner(std::move(inner)) {}
 
     QString translate(const char* context, const char* source, const char* disambiguation, int n) const override {
-        // a text rewritten as a whole is matched in English, before any translation
-        if (const auto whole = wholeTexts().constFind(QString::fromUtf8(source)); whole != wholeTexts().cend()) {
-            return *whole;
+        const auto english = QString::fromUtf8(source);
+        QString translated;
+        for (const auto* inner : m_inner) {
+            translated = inner->translate(context, source, disambiguation, n);
+            if (!translated.isEmpty()) {
+                break;
+            }
         }
-        const auto translated = m_inner ? m_inner->translate(context, source, disambiguation, n) : QString();
-        const auto text       = translated.isEmpty() ? QString::fromUtf8(source) : translated;
+        // In English a few texts are rewritten as a whole; in another language the
+        // translation is kept, with the names changed: better than English in between.
+        if (translated.isEmpty() || translated == english) {
+            if (const auto whole = wholeTexts().constFind(english); whole != wholeTexts().cend()) {
+                return *whole;
+            }
+        }
+        const auto text       = translated.isEmpty() ? english : translated;
         const auto branded    = rebrand(text);
         // nothing to change and nothing translated: let Qt fall back as usual
         return translated.isEmpty() && branded == text ? QString() : branded;
@@ -76,7 +89,7 @@ class BrandTranslator final : public QTranslator {
     bool isEmpty() const override { return false; }
 
  private:
-    QTranslator* m_inner;
+    QList<QTranslator*> m_inner;
 };
 
 /// The app's own pictures of the CachyOS logo.
@@ -123,14 +136,18 @@ bool active() {
     return PI_DISTRO_NAME[0] != '\0';
 }
 
-void apply(QTranslator* loaded) {
+void apply() {
     if (!active()) {
         return;
     }
-    if (loaded != nullptr) {
-        QCoreApplication::removeTranslator(loaded);
+    // the ones main() loaded, children of the application in the order installed
+    QList<QTranslator*> loaded;
+    for (auto* child : QCoreApplication::instance()->findChildren<QTranslator*>(Qt::FindDirectChildrenOnly)) {
+        if (QCoreApplication::removeTranslator(child)) {
+            loaded.prepend(child);
+        }
     }
-    static BrandTranslator translator(loaded);
+    static BrandTranslator translator(std::move(loaded));
     QCoreApplication::installTranslator(&translator);
 
     if (PI_APP_ID[0] != '\0') {
